@@ -17,9 +17,6 @@ from serial import EIGHTBITS, SEVENBITS, PARITY_NONE, PARITY_ODD, PARITY_EVEN, S
 
 from serial.tools.list_ports import comports
 
-# WARNING: Qt's "emit" rejects type 'float'. Therefore, values must be 'int'
-#   TODO: Instead of passing numbers (int) with signal, pass the string itself and convert it to float afterwards!
-
 # TODO: JOIN Threads!? Secondary thread keeps running despite KeyboardInterrupt
 # GUI Thread should wait for ALL the variables to be updated
 
@@ -27,12 +24,13 @@ from serial.tools.list_ports import comports
 
 # TODO: make the code more pythonic (organize in classes and modules)
 
+# TODO: move constants to new config file
 # Constants configuration:
 DEBUG = False
-DEBUG_NOISE = True  # helps to distinguish new data from old ones
-DATA_BUFFER_LENGTH = 1000
+DATA_BUFFER_LENGTH = 200
+CURVES_LIFETIME = 5  # [s] time to keep curve with no new data update, after which it's removed
 # UPDATE_PERIOD = 10  # milliseconds
-ANTIALIASING = True
+ANTIALIASING = False
 
 # Port selection prompt
 available_ports = [p[0] for p in comports()]
@@ -47,6 +45,7 @@ class Variable:
     colors = "ygcbmr"  # possible colors cycle around in the plot "ygcbmr"
 
     def __init__(self, name, init_value):
+        self.last_time_updated = 0
         self.name = name
         self.last_value = init_value
         self.instances.update({self.name: self})
@@ -62,7 +61,7 @@ class Variable:
         legend.addItem(self.curve, self.name)
         self.has_legend = True
 
-        self.last_time_updated = 0
+
 
         Variable.n_instances += 1
 
@@ -153,7 +152,6 @@ updated_variables = []  # [True, False, ...]. Informs whether the variables were
 
 def data_update_slot(name, value):
     """
-    Receives parameters from SerialParser's signal and updates data
     :param name: str
     :param value: float
     :return:
@@ -165,7 +163,7 @@ def data_update_slot(name, value):
     #### BEGIN BRANCH 20/03/2021 #############
     if name not in Variable.instances:
         Variable(name=name, init_value=value)
-    else:
+    elif isinstance(value, float):
         Variable.instances[name].new_value(value)
 
     if DEBUG: print(Variable.instances)
@@ -176,14 +174,28 @@ def data_update_slot(name, value):
 plot_window.enableAutoRange('xy', True)
 
 def update(name, value):
+    """
+    Receives parameters from SerialParser's signal and updates data
+    :param name: str
+    :param value: float
+    :return:
+    """
     global iter, curve2, variables, told, x, updated_variables, mutex, legend
+
+    try:
+        value = float(value)
+    except ValueError as err:
+        if DEBUG:
+            print(err.args[0])
+            print(f"Warning: {value} failed to be converted to float and was not caught")
+            # TODO: do something to catch 'value'
 
     data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
 
     #### BEGIN BRANCH 20/03/2021  ############
     mutex.lock()  # locks other thread until this part is processed
     for var in Variable.instances.values(): # gets the objects of Variable
-        if var.up_to_date(time_limit=2):
+        if var.up_to_date(time_limit=CURVES_LIFETIME):
             var.curve.setData(x, var.buffer)
             if not var.has_legend:
                 legend.addItem(var.curve, var.name)
@@ -207,7 +219,7 @@ told = time.time()
 
 
 class SerialParser(QtCore.QThread):
-    signal = QtCore.pyqtSignal(str, int, name="serial2plot")
+    signal = QtCore.pyqtSignal(str, str, name="serial2plot")
     def __init__(self):
         super(SerialParser, self).__init__()
         self.serial_connect()
@@ -235,10 +247,10 @@ class SerialParser(QtCore.QThread):
 
     def send_to_main_thread(self, _name, _value):
 
-        self.signal.emit(_name, int(_value)) # FIXME: emit requires type 'int', so perhaps float can't be reliably passed
+        self.signal.emit(_name, _value) # FIXME: emit requires type 'int', so perhaps float can't be reliably passed
         return
 
-    def parse_line(self) -> Tuple[str, int]:
+    def parse_line(self) -> Tuple[str, str]:
         """
         Reads a \\n terminated line from serial port and returns the variable and its value
         Note: only one variable-value pair allowed
@@ -247,7 +259,7 @@ class SerialParser(QtCore.QThread):
         """
         line = []
         var_name = ""
-        var_value = -1
+        var_value = "-1"
         try:
             line = self.serial.readline().strip().decode().split()  # " var 3.14" -> ["var", "3.14"]
 
@@ -268,13 +280,13 @@ class SerialParser(QtCore.QThread):
             #if DEBUG:
                 #print("raw value is: ", line[1], '+ noise')
 
-            try:
-                var_value = int(line[1])
-                if DEBUG_NOISE and DEBUG:
+            # try:
+            var_value = line[1]
+                # if DEBUG_NOISE and DEBUG:
                     # var_value += np.random.choice([0,10,20,30])
-                    var_value += 10*np.random.randn()
-            except ValueError as err:
-                print(err.args[0])
+            #         var_value += 10*np.random.randn()
+            # except ValueError as err:
+            #     print(err.args[0])
 
         return var_name, var_value
 
