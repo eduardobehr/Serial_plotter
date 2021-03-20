@@ -14,12 +14,10 @@ import time, re, os
 import serial
 from serial import EIGHTBITS, SEVENBITS, PARITY_NONE, PARITY_ODD, PARITY_EVEN, STOPBITS_ONE, STOPBITS_TWO, \
     SerialException, SerialTimeoutException
-from serial.tools.list_ports import main as list_ports
-from serial.tools.list_ports import comports
-from ctypes import c_float
 
-# FIXME: When more signals are sent, the plotter interleaves them switching to zero (like a saw tooth wave)
-#   It happens because the buffer index is global and increments with the update of each var, leaving the other at zero
+from serial.tools.list_ports import comports
+
+
 # FIXME: sometimes, the plot freezes on start, although the data is being received
 #   The above happens when the serial is caught in the middle of a transaction, and the string gets currupted!
 #   Check if the value is correct?
@@ -30,14 +28,13 @@ from ctypes import c_float
 # WARNING: Qt's "emit" rejects type 'float'. Therefore, values must be 'int'
 
 # TODO: JOIN Threads! Secondary thread keeps running despite KeyboardInterrupt
+
 # GUI Thread should wait for ALL the variables to be updated
 # Constants configuration:
-DEBUG = True
-DEBUG_NOISE = True
+DEBUG = False
+DEBUG_NOISE = True  # helps to distinguish new data from old ones
 DATA_BUFFER_LENGTH = 1100
-PRINT_PARSED_DATA = False
 UPDATE_PERIOD = 10  # milliseconds
-VARIABLES_LIMIT = 1
 ANTIALIASING = True
 
 # Port selection prompt
@@ -309,6 +306,9 @@ class SerialParser(QtCore.QThread):
         except UnicodeDecodeError as err:
             print("Unicode Decode Error:", err.args)
 
+        except KeyboardInterrupt:
+            self.terminate()
+
         if len(line) > 1:
             var_name = line[0]
             line[1] = re.sub("[^0-9.-]", "", line[1])  # removes everything that is not numeric
@@ -328,10 +328,6 @@ class SerialParser(QtCore.QThread):
 
 # TODO: add automatic port identification (i.e. serial keeps changing from 0 through 2)
 parser = SerialParser()
-# parser.start()
-
-
-
 
 
 ## Start Qt event loop unless running in interactive mode or using pyside.
