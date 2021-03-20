@@ -30,7 +30,7 @@ from serial.tools.list_ports import comports
 # Constants configuration:
 DEBUG = False
 DEBUG_NOISE = True  # helps to distinguish new data from old ones
-DATA_BUFFER_LENGTH = 10000
+DATA_BUFFER_LENGTH = 1000
 # UPDATE_PERIOD = 10  # milliseconds
 ANTIALIASING = True
 
