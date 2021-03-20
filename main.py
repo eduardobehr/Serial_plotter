@@ -20,14 +20,18 @@ from serial.tools.list_ports import comports
 # WARNING: Qt's "emit" rejects type 'float'. Therefore, values must be 'int'
 #   TODO: Instead of passing numbers (int) with signal, pass the string itself and convert it to float afterwards!
 
-# TODO: JOIN Threads! Secondary thread keeps running despite KeyboardInterrupt
+# TODO: JOIN Threads!? Secondary thread keeps running despite KeyboardInterrupt
 # GUI Thread should wait for ALL the variables to be updated
 
+# TODO: compile to Cython to improve performance!?
+
+# TODO: make the code more pythonic (organize in classes and modules)
+
 # Constants configuration:
-DEBUG = True
+DEBUG = False
 DEBUG_NOISE = True  # helps to distinguish new data from old ones
-DATA_BUFFER_LENGTH = 1100
-UPDATE_PERIOD = 10  # milliseconds
+DATA_BUFFER_LENGTH = 10000
+# UPDATE_PERIOD = 10  # milliseconds
 ANTIALIASING = True
 
 # Port selection prompt
@@ -51,10 +55,13 @@ class Variable:
         self.updated = False
         self.buffer = np.zeros(DATA_BUFFER_LENGTH, float)
         self.new_value(self.last_value)
-        print(f"{self.id=},  {len(Variable.colors)=},  {self.id%len(Variable.colors)=}")
+
         self.color = Variable.colors[self.id%len(Variable.colors)]
 
         self.curve = plot_window.plot(pen=self.color)
+        legend.addItem(self.curve, self.name)
+        self.has_legend = True
+
         self.last_time_updated = 0
 
         Variable.n_instances += 1
@@ -123,19 +130,22 @@ win.setWindowTitle('Serial Plotter')
 pg.setConfigOptions(antialias=ANTIALIASING)
 
 
+
 t0 = time.time()
 plot_window = win.addPlot(title=f"Real time scanning of port {PORT}")
+
+# TODO: add legend!
+legend = pg.LegendItem((80,60), offset=(70,20))
+legend.setParentItem(plot_window)
+# legend.addItem(data, 'bar')
+
 
 # x = np.linspace(0,DATA_BUFFER_LENGTH*UPDATE_PERIOD/1000, DATA_BUFFER_LENGTH)  # TODO: make timing precise
 x = np.linspace(0,DATA_BUFFER_LENGTH-1, DATA_BUFFER_LENGTH)
 iter = 0
 # data = np.random.normal(size=(variations_example,data_length))
 
-# TODO: add legend!
-legend = pg.LegendItem((80,60), offset=(70,20))
-# # legend.setParentItem()
-# legend.addItem(data, 'bar')
-# win.addItem(legend)
+
 
 variables = dict()  # {"var": (ndarray, plot), ...}
 updated_variables = []  # [True, False, ...]. Informs whether the variables were updated
@@ -166,7 +176,7 @@ def data_update_slot(name, value):
 plot_window.enableAutoRange('xy', True)
 
 def update(name, value):
-    global iter, curve2, variables, told, x, updated_variables, mutex
+    global iter, curve2, variables, told, x, updated_variables, mutex, legend
 
     data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
 
@@ -175,21 +185,25 @@ def update(name, value):
     for var in Variable.instances.values(): # gets the objects of Variable
         if var.up_to_date(time_limit=2):
             var.curve.setData(x, var.buffer)
+            if not var.has_legend:
+                legend.addItem(var.curve, var.name)
+                var.has_legend = True
         else:
             # if the variable wasn't updated in the last couple of seconds, clear it out of the plot
             if var.curve:
+                if var.has_legend:
+                    # remove cleared data curve from the legend as well
+                    legend.removeItem(var.name)
+                    var.has_legend = False
                 var.curve.clear()
+
+                # print("DELETED CURVE: ", var.name)
+
     mutex.unlock()  # unlocks other thread
     #### END BRANCH 20/03/2021  ############
-# this is branch
 
-# TODO: instead of timer, use event driven approach. I.e, update only when new data reachs the data_update_slot!
-timer = QtCore.QTimer()
-# event = QtCore.QEvent()
-# event.
+
 told = time.time()
-# timer.timeout.connect(update)
-# timer.start(UPDATE_PERIOD)
 
 
 class SerialParser(QtCore.QThread):
