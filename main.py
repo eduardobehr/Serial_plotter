@@ -181,7 +181,7 @@ def update(name, value):
                 var.curve.clear()
     mutex.unlock()  # unlocks other thread
     #### END BRANCH 20/03/2021  ############
-
+# this is branch
 
 # TODO: instead of timer, use event driven approach. I.e, update only when new data reachs the data_update_slot!
 timer = QtCore.QTimer()
