@@ -25,6 +25,8 @@ from ctypes import c_float
 #   Check if the value is correct?
 #   Alternative: if the variable is not updated after N sweeps, remove it from the plot!
 
+# TODO: Instead of passing numbers (int) with signal, pass the string itself and convert it to float afterwards!
+
 # WARNING: Qt's "emit" rejects type 'float'. Therefore, values must be 'int'
 
 # TODO: JOIN Threads! Secondary thread keeps running despite KeyboardInterrupt
