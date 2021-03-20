@@ -3,3 +3,6 @@
 /pg_examples.py
 /pg_example_updating_plot.py
 /venv/
+Multithreading_overrun@1kHz-Plotter faster than serial reader @115200-.png
+Multithreading_synched - Plotter(GUI) thread waits serial thread @115200bps on event driven approach .png
+main_synched_but_interleaved.py

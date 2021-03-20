@@ -1,12 +1,13 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 """
-SERIAL FORMAT (separation by white space):
+SERIAL FORMAT (separation by white space. Only integers):
 'variable1 123\n'
-'variable2 3.141592\n'
+'variable2 31415\n'
 """
 
 from pyqtgraph.Qt import QtGui, QtCore
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 import numpy as np
 import pyqtgraph as pg
 import time, re, os
@@ -16,12 +17,16 @@ from serial import EIGHTBITS, SEVENBITS, PARITY_NONE, PARITY_ODD, PARITY_EVEN, S
 from serial.tools.list_ports import main as list_ports
 from serial.tools.list_ports import comports
 
+# FIXME: When more signals are sent, the plotter interleaves them switching to zero (like a saw tooth wave)
+# FIXME: sometimes, the plot freezes on start, although the data is being received
+# TODO: JOIN Threads! Secondary thread keeps running despite KeyboardInterrupt
+# GUI Thread should wait for ALL the variables to be updated
 # Constants configuration:
 DEBUG = True
 DATA_BUFFER_LENGTH = 100
 PRINT_PARSED_DATA = False
-UPDATE_PERIOD = 25
-VARIABLES_LIMIT = 4
+UPDATE_PERIOD = 10  # milliseconds
+VARIABLES_LIMIT = 1
 ANTIALIASING = True
 
 # Port selection prompt
@@ -83,7 +88,7 @@ data_length = DATA_BUFFER_LENGTH
 
 # x = np.zeros(DATA_BUFFER_LENGTH, float)
 y = np.ones(DATA_BUFFER_LENGTH, float)
-x = np.linspace(0,DATA_BUFFER_LENGTH, DATA_BUFFER_LENGTH)
+x = np.linspace(0,DATA_BUFFER_LENGTH*UPDATE_PERIOD/1000, DATA_BUFFER_LENGTH)
 iter = 0
 # data = np.random.normal(size=(variations_example,data_length))
 
@@ -94,9 +99,10 @@ iter = 0
 # win.addItem(legend)
 
 variables = dict()  # {"var": (ndarray, plot), ...}
+updated_variables = []  # [True, False, ...]. Informs whether the variables were updated
 # variables.update({"_time": x})
 
-def data_slot(name, value):
+def data_update_slot(name, value):
     """
     Receives parameters from SerialParser's signal and updates data
     :param name: str
@@ -105,28 +111,33 @@ def data_slot(name, value):
     """
     # t = QtCore.QTime.currentTime()
     # print(f"Signal received!{t}")
-    global variables
+    global variables, updated_variables
 
-    if value is not None:
-
+    if value >= 0:  # ADC reads no negative value. TODO: allow any real value
+        # checks if there is a new variable from serial
         if name not in variables and len(variables) <= VARIABLES_LIMIT:
             colors = "yrgb"
             color = colors[len(variables)]
+
+            updated_variables.append(False)
             # creates a new ndarray for the new variable
             variables.update(
                 {
                     name:
                         [
                             np.zeros(DATA_BUFFER_LENGTH, float),
-                            plot_window.plot(pen=color)
+                            plot_window.plot(pen=color),
+                            False  # updated value state
                         ]
 
 
                 }
             )
-        # if name in variables:
-        variables[name][0][iter] = value
-        y[iter] = value
+        if name in variables:
+            variables[name][0][iter] = value  
+            variables[name][2] = True
+        # y[iter] = value
+        # x[iter] = time.time()-t0
     else:
         # y[iter] = 0
         pass
@@ -136,47 +147,64 @@ def data_slot(name, value):
     pass
 
 plot_window.enableAutoRange('xy', True)
-def update():
-    global curve, data, plot_window, iter, curve2, variables, told
+def update(name, value):
+    global iter, curve2, variables, told, x, updated_variables
+    # resets 'updated' state
+    # for i in enumerate(updated_variables):
+    #     updated_variables[i] = False
+
+    data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
+
+
+
     tnow = time.time()
     # x[iter] = iter
-    # y[iter] = data_slot()
+    # y[iter] = data_update_slot()
     # curve.setData( data[iter%variations_example])
     # print("Variables:", variables)
-    for key, value in variables.items():
+    for i, (key, value) in enumerate(variables.items()):
         # value == [ndarray, plotitem]
-        dat = value[0]
+        if name in variables and variables[name][2] == True:  # FIXME 20/03/2021: KeyError. Check if key exists!
 
-        curv = value[1]
-        curv.setData(x, dat)
+            dat = value[0]
+
+            curv = value[1]
+            curv.setData(x, dat)
+            variables[name][2] = False
         # curve2.setData(x,y2)
         # print("DATA: ", dat)
         # print("Curv ", curv)
         pass
     # curve.setData(x, y)
 
-    if iter == 0:
-        # plot_window.enableAutoRange('xy', False)  ## stop auto-scaling after the first data set is plotted
-        pass
+    # if DEBUG or True:
+    # dt = tnow-told
+    # print(f"Sampling rate: {1/dt:.3f} Hz")
+    # told = tnow
 
     iter = (iter + 1) % DATA_BUFFER_LENGTH
-    if DEBUG:
-        dt = tnow-told
-        print(f"Sampling rate: {1/dt:.3f} Hz")
-        told = tnow
+    # iter += 1
+    # if iter >= DATA_BUFFER_LENGTH:
+    #     iter = 0
+    #     # x = np.linspace(0, DATA_BUFFER_LENGTH * dt, DATA_BUFFER_LENGTH)
+    #     pass
 
+# TODO: instead of timer, use event driven approach. I.e, update only when new data reachs the data_update_slot!
 timer = QtCore.QTimer()
+# event = QtCore.QEvent()
+# event.
 told = time.time()
-timer.timeout.connect(update)
-timer.start(UPDATE_PERIOD)
+# timer.timeout.connect(update)
+# timer.start(UPDATE_PERIOD)
+
 
 class SerialParser(QtCore.QThread):
-    signal = QtCore.pyqtSignal(str, float, name="serial2plot")
+    signal = QtCore.pyqtSignal(str, int, name="serial2plot")
     def __init__(self):
         super(SerialParser, self).__init__()
         self.serial_connect()
         self.variables = []
-        self.signal.connect(data_slot)
+        self.signal.connect(update)
 
     def serial_connect(self):
         while True:
@@ -204,16 +232,16 @@ class SerialParser(QtCore.QThread):
         # TODO: release lock and allow main thread to proceed
         return
 
-    def parse_line(self) -> Tuple[str, float]:
+    def parse_line(self) -> Tuple[str, int]:
         """
         Reads a \\n terminated line from serial port and returns the variable and its value
         Note: only one variable-value pair allowed
         :return: var_name (str)
         :return: var_value (float)
         """
-        # line = []
-        # var_name = ""
-        var_value = None
+        line = []
+        var_name = ""
+        var_value = -1
         try:
             line = self.serial.readline().strip().decode().split()  # " var 3.14" -> ["var", "3.14"]
 
@@ -230,10 +258,16 @@ class SerialParser(QtCore.QThread):
         if len(line) > 1:
             var_name = line[0]
             line[1] = re.sub("[^0-9.]", "", line[1])  # removes everything that is not numeric
-            if line[1].isnumeric():
-                var_value = float(line[1])
-            else:
-                print(f"Warning: value not found for {var_name}\n")
+            if DEBUG:
+                print("raw value is: ", line[1], '+ noise')
+            
+            
+            try:
+                var_value = int(line[1])
+                if DEBUG:
+                    var_value += np.random.choice([0,10,20,30])
+            except ValueError as err:
+                print(err.args[0])
 
         return var_name, var_value
 
