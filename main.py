@@ -1,50 +1,51 @@
 #! /usr/bin/python
 # -*- coding: utf-8 -*-
-"""
-SERIAL FORMAT (separation by white space. Only integers):
+""" Serial Plotter: a convenient and simple microcontroller debugger
+Make sure to check if the needed parameters in the config.py file are what you want
+SERIAL FORMAT (separation by white space, each data in its own line!):
 'variable1 123\n'
-'variable2 31415\n'
+'variable2 3.1415\n'
 """
 
-from pyqtgraph.Qt import QtGui, QtCore
-from typing import Union, Tuple, List
-import numpy as np
-import pyqtgraph as pg
-import time, re, os
-import serial
 from serial import SerialException, SerialTimeoutException
-
 from serial.tools.list_ports import comports
+from pyqtgraph.Qt import QtGui, QtCore
+from typing import Union, Tuple
+import pyqtgraph as pg
 from config import *
+import numpy as np
+import serial
+import time
+import re
+import os
+
+__author__ = "Eduardo Eller Behr (eduardobehr @ Github)"
+__license__ = "GPL"
+__version__ = "3.0"
 
 
 # TODO: make the code more pythonic (organize in classes and modules)
-
 # TODO: document! (docstrings)
-
 # TODO: move constants to new config file
-
 # TODO: JOIN Threads!? Secondary thread keeps running despite KeyboardInterrupt
-# GUI Thread should wait for ALL the variables to be updated
-
+#   GUI Thread should wait for ALL the variables to be updated
 # TODO: compile to Cython to improve performance!?
 
 
-
-
-# Port selection prompt
-available_ports = [p[0] for p in comports()]
-N_PORTS = len(available_ports)
-
 class Variable:
-    """ Object stores an array with all the values to be plotted
-     Creation: 20/03/2021
+    """
+    Stores information about the variables to be plotted (data array, name, color,legend and curve object, etc)
     """
     instances = dict()
     n_instances = 0
     colors = "ygcbmr"  # possible colors cycle around in the plot "ygcbmr"
 
-    def __init__(self, name, init_value):
+    def __init__(self, name: str, init_value: Union[float, int], application: "App"):
+        """
+        :param name: Name of the variable to appear on the legend
+        :param init_value: First numeric value to store in the data buffer array
+        :param application: application object that runs the GUI
+        """
         self.last_time_updated = 0
         self.name = name
         self.last_value = init_value
@@ -54,15 +55,11 @@ class Variable:
         self.updated = False
         self.buffer = np.zeros(DATA_BUFFER_LENGTH, float)
         self.new_value(self.last_value)
-
-        self.color = Variable.colors[self.id%len(Variable.colors)]
-
-        self.curve = plot_window.plot(pen=self.color)
-        legend.addItem(self.curve, self.name)
+        self.app = application
+        self.color = Variable.colors[self.id % len(Variable.colors)]
+        self.curve = self.app.plot_window.plot(pen=self.color)
+        self.app.legend.addItem(self.curve, self.name)
         self.has_legend = True
-
-
-
         Variable.n_instances += 1
 
     def __repr__(self):
@@ -84,145 +81,77 @@ class Variable:
         return time.time() - self.last_time_updated < time_limit
 
 
+# Serial setup
+#   Port selection prompt
+available_ports = [p[0] for p in comports()]
+N_PORTS = len(available_ports)
+
+
 def display_ports():
     for i, port in enumerate(available_ports):
-        print("\t",i, port)
-if N_PORTS == 0:
-    print("No ports found! Exiting...")
-    exit()
-elif N_PORTS == 1:
-    PORT = available_ports[0]
-    print(f"Connecting to {PORT}")
-elif N_PORTS > 1:
-    print("Multiple ports found, choose one by its index:")
-    display_ports()
-    while True:
-        chosen_index = input("Choose a port index (q to quit): ")
-        if chosen_index.isnumeric() and int(chosen_index) in range(N_PORTS):
-            PORT = available_ports[int(chosen_index)]
-            break
-        elif chosen_index.lower() in ['q', 'quit', 'exit', 'abort', 'suspend', 'cancel']:
-            print("Exiting...")
-            exit()
-        else:
-            os.system("clear")
-            print("Invalid input!")
-            display_ports()
-# Serial setup
-# PORT = "/dev/ttyUSB0"  # this should be chosen from dropdown (GUI) or argument (CLI)
+        print("\t", i, port)
 
 
-
-
-# Setup application
-app = QtGui.QApplication([])
-win = pg.GraphicsLayoutWidget(show=True, title="Basic plotting examples")
-win.resize(1000,600)
-win.setWindowTitle('Serial Plotter')
-pg.setConfigOptions(antialias=ANTIALIASING)
-
-
-
-t0 = time.time()
-plot_window = win.addPlot(title=f"Real time scanning of port {PORT}")
-
-legend = pg.LegendItem((80,60), offset=(70,20))
-legend.setParentItem(plot_window)
-
-
-# x = np.linspace(0,DATA_BUFFER_LENGTH*UPDATE_PERIOD/1000, DATA_BUFFER_LENGTH)  # TODO: make timing precise
-x = np.linspace(0,DATA_BUFFER_LENGTH-1, DATA_BUFFER_LENGTH)
-iter = 0
-# data = np.random.normal(size=(variations_example,data_length))
-
-
-
-variables = dict()  # {"var": (ndarray, plot), ...}
-updated_variables = []  # [True, False, ...]. Informs whether the variables were updated
-# variables.update({"_time": x})
-
-def data_update_slot(name, value):
+def port_selection_prompt() -> Union[None, str]:
     """
-    :param name: str
-    :param value: float
-    :return:
+    Prompts the user to select the desired port to read from, if multiple are available.
+    If none is available, exit program.
+    If only one is available, automatically select it and proceed
+    :return: Union[None, str]
     """
-    # t = QtCore.QTime.currentTime()
-    # print(f"Signal received!{t}")
-    global variables, updated_variables
+    # display ports:
 
-    if name not in Variable.instances:
-        Variable(name=name, init_value=value)
-    elif isinstance(value, float):
-        Variable.instances[name].new_value(value)
+    if N_PORTS == 0:
+        print("No ports found! Exiting...")
+        exit()
+        return None
 
-    if DEBUG: print(Variable.instances)
+    elif N_PORTS == 1:
+        PORT = available_ports[0]
+        print(f"Connecting to {PORT}")
+        return PORT
 
-    pass
-
-plot_window.enableAutoRange('xy', True)
-
-def update(name, value):
-    """
-    Receives parameters from SerialParser's signal and updates data
-    :param name: str
-    :param value: float
-    :return:
-    """
-    global iter, curve2, variables, told, x, updated_variables, mutex, legend
-
-    try:
-        value = float(value)
-    except ValueError as err:
-        if DEBUG:
-            print(err.args[0])
-            print(f"Warning: {value} failed to be converted to float and was not caught")
-            # TODO: do something to catch 'value'
-
-    data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
-
-    mutex.lock()  # locks other thread until this part is processed
-    for var in Variable.instances.values(): # gets the objects of Variable
-        if var.up_to_date(time_limit=CURVES_LIFETIME):
-            var.curve.setData(x, var.buffer)
-            if not var.has_legend:
-                legend.addItem(var.curve, var.name)
-                var.has_legend = True
-        else:
-            # if the variable wasn't updated in the last couple of seconds, clear it out of the plot
-            if var.curve:
-                if var.has_legend:
-                    # remove cleared data curve from the legend as well
-                    legend.removeItem(var.name)
-                    var.has_legend = False
-                var.curve.clear()
-
-                # print("DELETED CURVE: ", var.name)
-
-    mutex.unlock()  # unlocks other thread
-
-
-told = time.time()
+    elif N_PORTS > 1:
+        print("Multiple ports found, choose one by its index:")
+        display_ports()
+        while True:
+            chosen_index = input("Choose a port index (q to quit): ")
+            if chosen_index.isnumeric() and int(chosen_index) in range(N_PORTS):
+                PORT = available_ports[int(chosen_index)]
+                break
+            elif chosen_index.lower() in ['q', 'quit', 'exit', 'abort', 'suspend', 'cancel']:
+                print("Exiting...")
+                exit()
+            else:
+                os.system("clear")
+                print("Invalid input!")
+                display_ports()
+        return PORT
 
 
 class SerialParser(QtCore.QThread):
     signal = QtCore.pyqtSignal(str, str, name="serial2plot")
+
     def __init__(self):
         super(SerialParser, self).__init__()
+        self.serial = None
+        self.port = port_selection_prompt()
         self.serial_connect()
         self.variables = []
-        self.signal.connect(update)
+        self.t0 = time.time()
+
+    def qt_connect_signal_to_slot(self, slot_function):
+        self.signal.connect(slot_function)
 
     def serial_connect(self):
         while True:
             try:
-                self.serial = serial.Serial(port=PORT, baudrate=BAUDRATE,
+                self.serial = serial.Serial(port=self.port, baudrate=BAUDRATE,
                                             bytesize=BYTESIZE, parity=PARITY, stopbits=STOPBITS)
                 break
-            except SerialException as exc:
+            except SerialException:
                 # Connection attempt failed. Wait some time and retry...
-
-                print(f"Connection failed. Retrying at {PORT} {time.time()-t0}")
+                print(f"Connection failed. Retrying at {self.port} {time.time()-self.t0}")
                 time.sleep(0.5)
 
     def run(self) -> None:
@@ -233,8 +162,7 @@ class SerialParser(QtCore.QThread):
             # time.sleep(sleep_time)
 
     def send_to_main_thread(self, _name, _value):
-
-        self.signal.emit(_name, _value) # FIXME: emit requires type 'int', so perhaps float can't be reliably passed
+        self.signal.emit(_name, _value)  # FIXME: emit requires type 'int', so perhaps float can't be reliably passed
         return
 
     def parse_line(self) -> Tuple[str, str]:
@@ -254,7 +182,6 @@ class SerialParser(QtCore.QThread):
             print("Serial Timeout:", exc.args)
         except SerialException as exc:
             print("Serial Exception:", exc.args)
-            # TODO: RETRY CONNECTION AND PROCEED!
             self.serial.close()
             self.serial_connect()
         except UnicodeDecodeError as err:
@@ -262,24 +189,92 @@ class SerialParser(QtCore.QThread):
 
         if len(line) > 1:
             var_name = line[0]
-            line[1] = re.sub("[^0-9.-]", "", line[1])  # removes everything that is not numeric
-            var_value = line[1]
+            var_value = re.sub("[^0-9.-]", "", line[1])  # removes everything that is not numeric
 
         return var_name, var_value
 
 
-parser = SerialParser()
-mutex = QtCore.QMutex()
+# Setup application
+class App(QtGui.QApplication):
+    def __init__(self, serial_parser):
+        QtGui.QApplication.__init__(self, [])  # Qt requires another argument, but doesn't know the reference...
+        self.win = pg.GraphicsLayoutWidget(show=True, title="Basic plotting examples")
+        self.win.resize(1000, 600)
+        self.win.setWindowTitle('Serial Plotter')
+        pg.setConfigOptions(antialias=ANTIALIASING)
+        self.plot_window = self.win.addPlot(title=f"Real time scanning of port {serial_parser.port}")
+        self.plot_window.enableAutoRange('xy', True)
+        self.legend = pg.LegendItem((80, 60), offset=(70, 20))
+        self.legend.setParentItem(self.plot_window)
+        # x = np.linspace(0,DATA_BUFFER_LENGTH*UPDATE_PERIOD/1000, DATA_BUFFER_LENGTH)  # TODO: make timing precise
+        self.x = np.linspace(0, DATA_BUFFER_LENGTH-1, DATA_BUFFER_LENGTH)
+        self.iter = 0
+
+    def data_update_slot(self, name: str, value: float):
+        """
+        :param name: name of the variable received from serial (before the white space)
+        :param value: value of the variable, as float, received from serial (after the white space)
+        :return:
+        """
+
+        if name not in Variable.instances:
+            Variable(name=name, init_value=value, application=self)
+        elif isinstance(value, float):
+            Variable.instances[name].new_value(value)
+
+        if DEBUG:
+            print(Variable.instances)
+
+    def update(self, name: str, value: str):
+        """
+        Receives parameters from SerialParser's signal and updates data
+        :param name: name of the variable received from serial (before the white space)
+        :param value: value of the variable, as str, received from serial (after the white space)
+        Note: 'value' must be str so that Qt won't make a fuss about it
+        """
+        # global iter, curve2, variables, told, x, updated_variables, mutex, legend
+
+        try:
+            value = float(value)
+        except ValueError as err:
+            if DEBUG:
+                print(err.args[0])
+                print(f"Warning: {value} failed to be converted to float and was not caught")
+                # TODO: do something to catch 'value'
+
+        self.data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
+
+        mutex.lock()  # locks other thread until this part is processed
+        for var in Variable.instances.values():  # gets the objects of Variable
+            if var.up_to_date(time_limit=CURVES_LIFETIME):
+                var.curve.setData(self.x, var.buffer)
+                if not var.has_legend:
+                    self.legend.addItem(var.curve, var.name)
+                    var.has_legend = True
+            else:
+                # if the variable wasn't updated in the last couple of seconds, clear it out of the plot
+                if var.curve:
+                    if var.has_legend:
+                        # remove cleared data curve from the legend as well
+                        self.legend.removeItem(var.name)
+                        var.has_legend = False
+                    var.curve.clear()
+
+                    # print("DELETED CURVE: ", var.name)
+        mutex.unlock()  # unlocks other thread
 
 
 if __name__ == '__main__':
+    parser = SerialParser()
+    mutex = QtCore.QMutex()
     import sys
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
+        app = App(parser)
+        parser.qt_connect_signal_to_slot(app.update)
         try:
             parser.start()
-            # QtGui.QApplication.instance().exec_()
+
             app.exec_()
         except KeyboardInterrupt:
             parser.terminate()
             app.exit(-1)
-        # QtGui.QGuiApplication.thread().wait()
