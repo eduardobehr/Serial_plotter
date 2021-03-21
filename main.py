@@ -232,7 +232,6 @@ class App(QtGui.QApplication):
         :param value: value of the variable, as str, received from serial (after the white space)
         Note: 'value' must be str so that Qt won't make a fuss about it
         """
-        # global iter, curve2, variables, told, x, updated_variables, mutex, legend
 
         try:
             value = float(value)
@@ -245,6 +244,7 @@ class App(QtGui.QApplication):
         self.data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
 
         mutex.lock()  # locks other thread until this part is processed
+
         for var in Variable.instances.values():  # gets the objects of Variable
             if var.up_to_date(time_limit=CURVES_LIFETIME):
                 var.curve.setData(self.x, var.buffer)
@@ -260,7 +260,6 @@ class App(QtGui.QApplication):
                         var.has_legend = False
                     var.curve.clear()
 
-                    # print("DELETED CURVE: ", var.name)
         mutex.unlock()  # unlocks other thread
 
 
@@ -273,7 +272,6 @@ if __name__ == '__main__':
         parser.qt_connect_signal_to_slot(app.update)
         try:
             parser.start()
-
             app.exec_()
         except KeyboardInterrupt:
             parser.terminate()
