@@ -12,25 +12,25 @@ import numpy as np
 import pyqtgraph as pg
 import time, re, os
 import serial
-from serial import EIGHTBITS, SEVENBITS, PARITY_NONE, PARITY_ODD, PARITY_EVEN, STOPBITS_ONE, STOPBITS_TWO, \
-    SerialException, SerialTimeoutException
+from serial import SerialException, SerialTimeoutException
 
 from serial.tools.list_ports import comports
+from config import *
+
+
+# TODO: make the code more pythonic (organize in classes and modules)
+
+# TODO: document! (docstrings)
+
+# TODO: move constants to new config file
 
 # TODO: JOIN Threads!? Secondary thread keeps running despite KeyboardInterrupt
 # GUI Thread should wait for ALL the variables to be updated
 
 # TODO: compile to Cython to improve performance!?
 
-# TODO: make the code more pythonic (organize in classes and modules)
 
-# TODO: move constants to new config file
-# Constants configuration:
-DEBUG = False
-DATA_BUFFER_LENGTH = 200
-CURVES_LIFETIME = 5  # [s] time to keep curve with no new data update, after which it's removed
-# UPDATE_PERIOD = 10  # milliseconds
-ANTIALIASING = False
+
 
 # Port selection prompt
 available_ports = [p[0] for p in comports()]
@@ -111,14 +111,7 @@ elif N_PORTS > 1:
 # Serial setup
 # PORT = "/dev/ttyUSB0"  # this should be chosen from dropdown (GUI) or argument (CLI)
 
-# if port_connection:
-#     PORT = port_connection
-# else:
-#     PORT = "/dev/ttyUSB0"
-BAUDRATE = 115200  # bits per second
-BYTESIZE = EIGHTBITS
-PARITY = PARITY_NONE
-STOPBITS = STOPBITS_ONE
+
 
 
 # Setup application
@@ -133,10 +126,8 @@ pg.setConfigOptions(antialias=ANTIALIASING)
 t0 = time.time()
 plot_window = win.addPlot(title=f"Real time scanning of port {PORT}")
 
-# TODO: add legend!
 legend = pg.LegendItem((80,60), offset=(70,20))
 legend.setParentItem(plot_window)
-# legend.addItem(data, 'bar')
 
 
 # x = np.linspace(0,DATA_BUFFER_LENGTH*UPDATE_PERIOD/1000, DATA_BUFFER_LENGTH)  # TODO: make timing precise
@@ -160,7 +151,6 @@ def data_update_slot(name, value):
     # print(f"Signal received!{t}")
     global variables, updated_variables
 
-    #### BEGIN BRANCH 20/03/2021 #############
     if name not in Variable.instances:
         Variable(name=name, init_value=value)
     elif isinstance(value, float):
@@ -168,7 +158,6 @@ def data_update_slot(name, value):
 
     if DEBUG: print(Variable.instances)
 
-    #### END BRANCH 20/03/2021 #############
     pass
 
 plot_window.enableAutoRange('xy', True)
@@ -192,7 +181,6 @@ def update(name, value):
 
     data_update_slot(name, value)  # Updates the global arrays x and the ones in variables
 
-    #### BEGIN BRANCH 20/03/2021  ############
     mutex.lock()  # locks other thread until this part is processed
     for var in Variable.instances.values(): # gets the objects of Variable
         if var.up_to_date(time_limit=CURVES_LIFETIME):
@@ -212,7 +200,6 @@ def update(name, value):
                 # print("DELETED CURVE: ", var.name)
 
     mutex.unlock()  # unlocks other thread
-    #### END BRANCH 20/03/2021  ############
 
 
 told = time.time()
@@ -273,20 +260,10 @@ class SerialParser(QtCore.QThread):
         except UnicodeDecodeError as err:
             print("Unicode Decode Error:", err.args)
 
-
         if len(line) > 1:
             var_name = line[0]
             line[1] = re.sub("[^0-9.-]", "", line[1])  # removes everything that is not numeric
-            #if DEBUG:
-                #print("raw value is: ", line[1], '+ noise')
-
-            # try:
             var_value = line[1]
-                # if DEBUG_NOISE and DEBUG:
-                    # var_value += np.random.choice([0,10,20,30])
-            #         var_value += 10*np.random.randn()
-            # except ValueError as err:
-            #     print(err.args[0])
 
         return var_name, var_value
 
