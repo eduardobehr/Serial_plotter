@@ -3,6 +3,8 @@
 Developped by eduardobehr.
 This personal project is meant to read data from the serial port and plot them in real time. Although the data is not logged, this feature might be added in the future.
 
+![demonstration](demonstration.png)
+
 Compatibility: this software relies on open-source cross-platform libraries that should allow it to run in any x86-64 platform, although it was only tested on 64 bits Linux.
 
 ## Serial format
@@ -27,7 +29,7 @@ variable2 31415\n
 
 ## Known bugs
 
-- Serial ports can frequencly send corrupted variable names, depending on the time the serial reader starts to listen to the port. Since the program won't be able do distinguish correct data from corrupt, it assumes the data is correct if it keeps being updated. Otherwise, if the data is no longer updated, its curve is dropped from the plot and no longer used.
+- Serial ports may frequently send corrupted variable names, depending on the time the serial reader starts to listen to the port. Since the program won't be able do distinguish correct data from corrupt, it assumes the data is correct if it keeps being updated. Otherwise, if the data is no longer updated, its curve is dropped from the plot and no longer used.
 - [FIXED] Pass ```str``` instead of ```int``` to allow the representation of ```float``` without the deprecationg warning from PyQt5's signal.emit method.
 
 ## To do
